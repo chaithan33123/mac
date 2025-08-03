@@ -1,36 +1,41 @@
 name: macOS 15 Desktop via VNC
+
 on: workflow_dispatch
 
 jobs:
-  start-macos:
+  run-macos-vnc:
     runs-on: macos-15
     steps:
-      - name: Set up password and enable Screen Sharing
-        run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -users runner -privs -all \
-            -restart -agent -menu
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -clientopts -setvnclegacy -vnclegacy yes
-
-          echo "Set VNC password"
-          echo -n 'aloneremote' | perl -we 'print pack("H*", unpack("H*", <STDIN>))' | \
-            sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
-
-      - name: Install ngrok
+      - name: Install Ngrok and jq
         run: |
           brew install ngrok jq
+
+      - name: Authenticate Ngrok
+        run: |
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
 
-      - name: Start ngrok tunnel to VNC port
+      - name: Enable Screen Sharing (VNC)
+        run: |
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -restart -agent -privs -all
+
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnConsole -bool true
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart
+
+          echo "VNC is enabled. Setting password..."
+          echo -n 'pass123' | perl -we 'print pack("H*", crypt(<STDIN>, "VN"))' > /tmp/vncpass
+          sudo cp /tmp/vncpass /Library/Preferences/com.apple.VNCSettings.txt
+          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+
+      - name: Start ngrok tunnel for VNC
         run: |
           nohup ngrok tcp 5900 --log=stdout &
           sleep 10
           echo "Your VNC connection address is:"
           curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
 
-      - name: (Optional) Debug via SSH/tmate
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ failure() }}
+      - name: Keep runner alive for VNC access
+        run: tail -f /dev/null
