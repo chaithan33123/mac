@@ -1,39 +1,38 @@
-name: macOS 15 Desktop via VNC
+name: macOS VNC Access
 on: workflow_dispatch
 
 jobs:
-  macos:
+  start-macos:
     runs-on: macos-15
-    timeout-minutes: 360  # Keep session alive for 6 hours
+    timeout-minutes: 360
 
     steps:
-      - name: Start VNC server and set password
+      - name: Enable screen sharing (VNC)
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -restart -agent -privs -all
-          sudo dscl . -create /Users/runneradmin
-          sudo dscl . -passwd /Users/runneradmin "P@ssw0rd!"
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -users runneradmin -access -on -privs -all -restart -agent
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnConsole -bool true
-          echo -n 'P@ssw0rd!' | perl -we 'print pack("H*", crypt(<STDIN>))' > ~/.vncpwd
-          sudo cp ~/.vncpwd /Library/Preferences/com.apple.VNCSettings.txt
-          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+            -configure -users runneradmin -access -on -privs -all
+          echo -n 'P@ssw0rd' | iconv -t UTF-16LE | openssl md5 -binary | base64 > ~/vncpw
+          sudo defaults write /Library/Preferences/com.apple.VNCSettings Password -data "$(cat ~/vncpw | base64 --decode | xxd -p)"
+          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
 
-      - name: Install ngrok and configure
+      - name: Install ngrok
         run: |
           brew install ngrok jq
-          mkdir -p /Users/runner/.ngrok2
-          echo "authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}" > /Users/runner/.ngrok2/ngrok.yml
+          echo "authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}" > ~/.ngrok2/ngrok.yml
 
-      - name: Start ngrok TCP tunnel
+      - name: Start ngrok tunnel for VNC (port 5900)
         run: |
           nohup ngrok tcp 5900 --log=stdout > ngrok.log &
-          sleep 15
+          sleep 10
           curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
 
-      - name: Keep session alive
+      - name: Keep session alive for 6 hours
         run: |
-          echo "VNC Ready. Session will remain active for 6 hours."
+          echo "✅ VNC server is running."
+          echo "📌 Username: runneradmin"
+          echo "🔑 Password: P@ssw0rd"
+          echo "🕒 Keeping session alive..."
           sleep 216000  # 6 hours
