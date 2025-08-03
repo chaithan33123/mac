@@ -1,47 +1,39 @@
-name: macOS 15 RDP Access
-
-on:
-  workflow_dispatch:
+name: macOS 15 Desktop via VNC
+on: workflow_dispatch
 
 jobs:
-  start-macos:
+  macos:
     runs-on: macos-15
-    timeout-minutes: 360 # 6 hours
+    timeout-minutes: 360  # Keep session alive for 6 hours
 
     steps:
-      - name: Create new user "runneradmin"
-        run: |
-          sudo sysadminctl -addUser runneradmin -password 'P@ssw0rd!' -admin
-          sudo dscl . -create /Users/runneradmin IsHidden 0
-          echo "User created: runneradmin"
-
-      - name: Set VNC Password
-        run: |
-          echo 'P@ssw0rd!' | perl -we 'print pack("H*", crypt(<STDIN>, "VN")."\0"x128)' > ~/.vncpass
-          sudo mv ~/.vncpass /Library/Preferences/com.apple.VNCSettings.txt
-          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
-
-      - name: Enable Screen Sharing (VNC)
+      - name: Start VNC server and set password
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -users runneradmin -privs -all \
-            -restart -agent -menu
+            -activate -configure -access -on -restart -agent -privs -all
+          sudo dscl . -create /Users/runneradmin
+          sudo dscl . -passwd /Users/runneradmin "P@ssw0rd!"
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -users runneradmin -access -on -privs -all -restart -agent
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnConsole -bool true
+          echo -n 'P@ssw0rd!' | perl -we 'print pack("H*", crypt(<STDIN>))' > ~/.vncpwd
+          sudo cp ~/.vncpwd /Library/Preferences/com.apple.VNCSettings.txt
+          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
 
-      - name: Enable VNC Access
+      - name: Install ngrok and configure
         run: |
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnly -bool false
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+          brew install ngrok jq
+          mkdir -p /Users/runner/.ngrok2
+          echo "authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}" > /Users/runner/.ngrok2/ngrok.yml
 
-      - name: Install and Start ngrok
+      - name: Start ngrok TCP tunnel
         run: |
-          brew install ngrok
-          echo "authtoken: YOUR_NGROK_AUTH_TOKEN" > ~/.ngrok2/ngrok.yml
-          ngrok tcp 5900 &
+          nohup ngrok tcp 5900 --log=stdout > ngrok.log &
+          sleep 15
+          curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
 
-      - name: Show VNC Connection Info
-        run: sleep 10 && curl -s http://127.0.0.1:4040/api/tunnels
-
-      - name: Keep Runner Alive
+      - name: Keep session alive
         run: |
-          echo "macOS is running. Keeping alive for 6 hours..."
-          while true; do sleep 60; done
+          echo "VNC Ready. Session will remain active for 6 hours."
+          sleep 216000  # 6 hours
