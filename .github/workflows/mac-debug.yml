@@ -1,30 +1,28 @@
-name: macOS
+name: macOS Debug VNC
 
 on:
   workflow_dispatch:
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 360  # 6 hours max runtime
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-    - name: Setup Environment
+    - name: Setup VNC with ngrok
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
       run: |
-        chmod +x .github/workflows/setup.sh
-        sudo .github/workflows/setup.sh "Alone215" "Alone215" "${{ secrets.NGROK_AUTH_TOKEN }}"
+        bash .github/workflows/setup.sh "Alone215" "Alone215" "$NGROK_AUTH_TOKEN"
 
-    - name: Wait for Ngrok Tunnel to Start
+    - name: Wait for ngrok tunnel
       run: |
-        sleep 10
-        echo "Fetching public ngrok URL..."
+        echo "Waiting for tunnel to be ready..."
+        sleep 15
         curl --silent http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[] | select(.proto=="tcp") | .public_url'
 
-    - name: Setup tmate session (keep job alive)
-      uses: mxschmitt/action-tmate@v2
-      timeout-minutes: 9999
+    - name: Keep alive with tmate session
+      uses: mxschmitt/action-tmate@v3
