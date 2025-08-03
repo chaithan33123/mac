@@ -3,39 +3,32 @@ name: macOS 15 Desktop via VNC
 on: workflow_dispatch
 
 jobs:
-  run-macos-vnc:
+  desktop:
     runs-on: macos-15
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Ngrok and jq
+      - name: Install TigerVNC and ngrok
         run: |
-          brew install ngrok jq
-
-      - name: Authenticate Ngrok
+          brew install tigervnc ngrok jq
+          
+      - name: Set up VNC password and xstartup
         run: |
-          ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+          mkdir -p ~/.vnc
+          echo "macvnc123" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          echo "#!/bin/sh" > ~/.vnc/xstartup
+          echo "open -a Finder" >> ~/.vnc/xstartup
+          chmod +x ~/.vnc/xstartup
 
-      - name: Enable Screen Sharing (VNC)
+      - name: Start VNC Server
         run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -restart -agent -privs -all
-
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnConsole -bool true
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart
-
-          echo "VNC is enabled. Setting password..."
-          echo -n 'pass123' | perl -we 'print pack("H*", crypt(<STDIN>, "VN"))' > /tmp/vncpass
-          sudo cp /tmp/vncpass /Library/Preferences/com.apple.VNCSettings.txt
-          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
-
-      - name: Start ngrok tunnel for VNC
+          vncserver :1
+          
+      - name: Start ngrok tunnel
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          nohup ngrok tcp 5900 --log=stdout &
+          ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
+          nohup ngrok tcp 5901 --log=stdout > ngrok.log &
           sleep 10
-          echo "Your VNC connection address is:"
+          echo "Ngrok tunnel address:"
           curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
-
-      - name: Keep runner alive for VNC access
-        run: tail -f /dev/null
