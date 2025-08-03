@@ -1,29 +1,25 @@
 #!/bin/bash
 
-USERNAME="$1"
-PASSWORD="$2"
-NGROK_TOKEN="$3"
+USERNAME=$1
+PASSWORD=$2
+NGROK_TOKEN=$3
 
-echo "Setting up environment for user: $USERNAME"
+echo "Setting up environment for $USERNAME..."
 
-# Disable Spotlight (ignore error if permission denied)
+# Disable Spotlight indexing
 sudo mdutil -i off /
-sudo mdutil -i off /System/Volumes/Data || true
+sudo mdutil -i off /System/Volumes/Data
 
-# Enable Remote Management (VNC)
-echo "Enabling Remote Management for $USERNAME..."
+# Enable remote management and VNC access
 sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
   -activate -configure -access -on \
   -users "$USERNAME" -privs -all -restart -agent -menu
 
 # Set VNC password (hashed)
-HASHED_PASS=$(echo "$PASSWORD" | perl -we 'print crypt(<STDIN>, "aa")')
-echo "$HASHED_PASS" > ~/.vncpwd
-sudo defaults write /Library/Preferences/com.apple.VNCSettings.plist Password -data $(xxd -p ~/.vncpwd | tr -d '\n')
+echo "$PASSWORD" | perl -we 'print crypt(<STDIN>, "aa")' > ~/.vncpwd
+sudo defaults write /Library/Preferences/com.apple.VNCSettings.plist Password -data $(xxd -p ~/.vncpwd)
 
-# Install and configure ngrok
+# Install ngrok and start tunnel
 brew install --cask ngrok
 ngrok config add-authtoken "$NGROK_TOKEN"
-
-# Start ngrok tunnel
 ngrok tcp 5900 > /dev/null &
