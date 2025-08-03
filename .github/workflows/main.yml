@@ -1,21 +1,36 @@
-name: macOS 15 Desktop via RDP
+name: macOS 15 Desktop via VNC
 on: workflow_dispatch
+
 jobs:
-  desktop:
+  start-macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - name: Install xRDP
+      - name: Set up password and enable Screen Sharing
         run: |
-          brew install xrdp
-          sudo brew services start xrdp
-      - name: Install ngrok and auth
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -users runner -privs -all \
+            -restart -agent -menu
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvnclegacy -vnclegacy yes
+
+          echo "Set VNC password"
+          echo -n 'aloneremote' | perl -we 'print pack("H*", unpack("H*", <STDIN>))' | \
+            sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
+
+      - name: Install ngrok
         run: |
           brew install ngrok jq
           ngrok config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
-      - name: Start ngrok tunnel
+
+      - name: Start ngrok tunnel to VNC port
         run: |
-          nohup ngrok tcp 3389 --log=stdout &
+          nohup ngrok tcp 5900 --log=stdout &
           sleep 10
-          curl -s http://127.0.0.1:4040/api/tunnels \
-            | jq -r '.tunnels[0].public_url'
+          echo "Your VNC connection address is:"
+          curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+
+      - name: (Optional) Debug via SSH/tmate
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ failure() }}
